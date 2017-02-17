@@ -2,7 +2,7 @@
 - hosts: SZ_Pre_Release01
   vars:
       cluster: h3
-      web_site: sz.rom.paidui.com
+      web_site: aaaaaaaa
   gather_facts: false
   tasks:
   - name: Add application_pool on IIS
