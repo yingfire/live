@@ -1,0 +1,29 @@
+#判断目录
+- name: 判断{{ db_restart_dir }},{{ db_slowquery_dir }},{{ db_backup_dir }}是否存在(不存在则创建)
+  file: dest={{ item.dir }} state=directory
+  with_items:
+    - { dir: '{{ db_restart_dir }}' }
+    - { dir: '{{ db_slowquery_dir }}' }
+    - { dir: '{{ db_backup_dir }}' }
+#添加计划任务
+- name: 添加备份,慢日志,重启计划任务
+  cron: name={{ item.cron_name }} minute={{ item.cron_minute }} hour={{ item.cron_hour }} job={{ cron_job }}
+  with_items:
+    - { cron_name: '数据库主库备份',cron_minute: '0',cron_hour: '3',cron_job: '/bin/bash -x -v /u1/scripts/dbbak/mydumper.sh >> /var/log/$(date -I).log 2>&1' }
+    - { cron_name: '重启数据库,释放内存',cron_minute: '0',cron_hour: '4',cron_job: '/bin/bash  /u1/scripts/restart_mysql.sh' }
+    - { cron_name: '轮询每日慢日志',cron_minute: '0',cron_hour: '8',cron_job: '/bin/bash /u1/scripts/mysql_slowquery_log/mysql_slowquery_log.sh >&/dev/null' }
+#传固定配置文件
+- name: 拷贝rc.local,crontab,db.txt,restart_mysql.sh,sudoers到指定目录
+  copy: src={{ item.constant_file }} dest={{ item.constant_file_dest }}
+  with_items:
+    - { constant_file: '{{ filessrc }}rc.local', constant_file_dest: '{{ db_rclocal_dir }}' }
+    - { constant_file: '{{ filessrc }}sudoers', constant_file_dest: '{{ db_rclocal_dir }}' }
+#    - { constant_file: '{{ filessrc }}root', constant_file_dest: '{{ db_crontab_dir }}' }
+    - { constant_file: '{{ filessrc }}db.txt', constant_file_dest: '{{ db_backup_dir }}' }
+    - { constant_file: '{{ filessrc }}restart_mysql.sh', constant_file_dest: '{{ db_restart_dir }}' }
+#传j2(可变)文件
+- name: 拷贝mydumper文件到{{ db_backup_dir }}
+  template: src={{ item.j2_file }} dest={{ item.j2_file_dest }}
+  with_items:
+    - { j2_file: mydumper.sh.j2 , j2_file_dest: '{{ db_backup_dir }}mydumper.sh' }
+    - { j2_file: mysql_slowquery_log.sh.j2 , j2_file_dest: '{{ db_slowquery_dir}}mysql_slowquery_log.sh' }

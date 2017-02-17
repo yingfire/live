@@ -1,0 +1,100 @@
+#!/bin/bash
+#-----------------------------------------------------------------------
+# Copyright (C)， 2016 PAIDUI.COM
+# 脚本名:      filebak.sh
+# 脚本用途:   备份rom数据库.
+# 其它功能:    cp数据备份，备份数据库的数据目录文件
+# 脚本位置:    /u1/scripts/dbbak/
+# 脚本修改历史:
+#  <作者>      <日期>       <版本 >    <描述>
+#  翟正平      16/05/26      1.1 
+# 版权: GPL
+#-----------------------------------------------------------------------
+#恢复说明
+#1 先建立三个数据库
+#2 恢复商家id_baseinfo表
+#3 再恢复商家id_member表
+#4 再恢复商家id_pos表
+#-----------------------------------------------------------------------
+#导入ROOT环境变量
+. /root/.bash_profile
+TOUSER="bm.it.svr@paidui.com"
+CUR_DIR="/u1/scripts/dbbak"
+ROM_PATH="{{ rom_path }}"
+MYIP="{{ dest_ip }}"
+DBUSER="root"
+DBPASS="123456"
+DBDIR="/data/mysql/mysql_3306"
+DBSOCK="/data/mysql/mysql_3306/mysql_3306.sock"
+NOW=`date +%F`
+CCDATE=`date -d "120 day ago" +%F`
+BAK_PATH="/data/filebak"
+LOG="/var/u1/scripts/dbbak/filebak_${NOW}.log"
+FILES="filebak_`date +%F`"
+BACKLOG="${BAK_PATH}/backup_log.txt"
+#SKIP_DB="${CUR_DIR}/db.txt"
+#创建备份目录
+test -d ${BAK_PATH}/${NOW} || mkdir -p ${BAK_PATH}/${NOW}
+
+#删除60天前的数据库备份
+if [ -e ${BAK_PATH}/${CCDATE}*.tar.bz2 ];then
+        rm -f ${BAK_PATH}/${CCDATE}*.tar.bz2
+fi
+
+
+#停止mysql数据库
+/usr/local/mysql/bin/mysqladmin shutdown  -u"${DBUSER}" -p"${DBPASS}"  --socket="${DBSOCK}"
+
+#检查mysql是否停止成功
+PSNUM=`ps -ef | grep mysqld | grep -v grep |wc -l`
+[ ${PSNUM} -eq 0 ] && echo "mysql服务已经停止。。。" >> ${LOG}
+
+#开始时间
+echo "=============================================" >>${BACKLOG}
+echo `date +"%Y-%m-%d %H:%M:%S"` >>${BACKLOG}
+echo " " >>${BACKLOG}
+#备份数据库
+echo "===================`date +'%F %T'` 备份===================<br>" >>${LOG}
+cp -rv ${DBDIR} ${BAK_PATH}/${NOW}/ 2>> ${LOG}
+echo "===================`date +'%F %T'` 备份结束===================<br>" >>${LOG}
+#附件完成时间
+echo `date +"%Y-%m-%d %H:%M:%S"` ${FILES}.tar.bz2 >>${BACKLOG}
+
+#转换日志
+unix2dos ${BACKLOG} &>/dev/null
+
+#启动mysql服务库
+/bin/start_mysql 1
+
+
+
+sleep 3
+
+#检查mysql是否启动成功
+PSNUM=`ps -ef | grep mysqld | grep -v grep |wc -l`
+[ ${PSNUM} -eq 2 ] && echo "mysql服务已经启动。。。" >> ${LOG}
+
+
+#删除备份目录下所有日志文件
+cd ${BAK_PATH}/${NOW}/mysql_3306 && rm -rf mysql_3306-*
+
+
+#压缩数据库
+cd ${BAK_PATH}
+nice -10 tar jcf ${NOW}.tar.bz2  ${NOW} >/dev/null 2>&1
+#发送邮件
+#if  ((`date +%H`%2==0)) ;then
+if grep -q 'error' ${LOG};then
+        STATUS="有失败"
+else
+        STATUS="成功"
+fi
+SIZE=`du -sh ${NOW}.tar.bz2|awk '{print $1}'`
+sed -i "1s#.*#备份文件大小${SIZE}.<br>存放路径:{{ dest_ip }}:${BAK_PATH}/${NOW}.tar.bz2<br>&#" ${LOG}
+mutt -F /root/.muttrc -s "IT_报告_{{ db_clusters_name }}数据库备份_{{ db_clusters_ip }}_${NOW}${STATUS}" ${TOUSER} <${LOG}
+#删除sql文件夹
+rm -fr ${BAK_PATH}/${NOW}
+#复制备份文件到ROM备份目录
+rsync -qulr --progress --partial ${BAK_PATH}/  ${ROM_PATH}/${MYIP}/
+find /data/filebak/ -ctime +7 -exec rm -f {} \;
+exit 0

@@ -1,0 +1,87 @@
+#!/bin/bash
+#-----------------------------------------------------------------------
+# Copyright (C)， 2012 PAIDUI.CN
+# 脚 本 名:     mysql_slowquery_log.sh
+# 脚本用途:     mysql慢查询日志轮转,压缩并加密后提供HTTP下载.
+# 其它功能:     发送慢日志分析报告邮件
+# 脚本位置:     192.168.80.81:/u1/scipts/mysql_slowquery_log/
+# 版    权:     GPL
+#=======================================================================
+# 脚本修改历史: 
+# <作者>        <日期>                  <版本>          <描述>
+# 郑鹏飞       2012-11-14                1.0            创建.
+# 黄起         2014-12-12                1.1            增加多实例慢日志.
+#-----------------------------------------------------------------------
+
+#导入ROOT环境变量
+        . /root/.bash_profile
+
+#设置慢日志分析报告收件人
+        #MAIL_LIST="zeng.hy@paidui.com,xiong.w@paidui.com,zhong.x@paidui.com,yang.ch@paidui.com,ye.hb@paidui.com,chen.y@paidui.com,bm.it.svr@paidui.com"
+        MAIL_LIST="z.db.mrz@paidui.com"
+        #MAIL_LIST="huang.q@paidui.com"
+        #MAIL_LIST="zhang.l2@paidui.com"
+        #慢日志路径
+        #SLOW_DIR="/log/mysql_3306"
+        #SLOW_FILE="${SLOW_DIR}/slowquery_3306.log"
+
+#备份日志路径及脚本执行情况记录日志
+        BACK_DATE="`date -d "-1 day" +%F`"
+        LOG_DIR="/var/u1/scripts/mysql_slowquery_log"
+        test -d ${LOG_DIR} || mkdir -p ${LOG_DIR}
+        LOG_FILE="${LOG_DIR}/slowquery_sh.log"
+        SLA_LOG="${LOG_DIR}/mysqlsla.log"
+
+#慢日志加密密码
+#        PASSWORD=`date -d ${BACK_DATE} +%s |cut -c 1-6 `
+
+#慢日志路径
+for port in 3306
+do
+        echo "=========================Port ${port}==========================" >>${LOG_FILE}
+        echo "=========================Port ${port}==========================" >>${SLA_LOG}
+        #日志备份存放路径
+        BACK_DIR="/data/mysql_slowquery_log/log_bak_${port}"
+        test -d ${BACK_DIR} || mkdir -p ${BACK_DIR}
+
+        #慢日志路径
+        SLOW_DIR="/data/mysql/mysql_${port}"
+        SLOW_FILE="${SLOW_DIR}/slowquery_${port}.log"
+        #确保慢日志存在,否则退出本实例.
+                if [ ! -f "${SLOW_FILE}" ];then
+                echo "${BACK_DATE} 日志文件不存在" >>${LOG_FILE}
+                continue
+                fi
+
+        #分析慢日志,并发送分析结果
+        #/usr/local/bin/mysqlsla -lt slow ${SLOW_FILE} |tee -a ${SLA_LOG} |mutt -F /root/.muttrc -s "IT_报告_北京ROM智慧云集群2主DB慢日志报告(${port}端口实例)_101.201.144.197_${BACK_DATE}" ${MAIL_LIST}
+	#获取慢日志返回的行数
+        LOG_LINES=`/usr/local/bin/mysqlsla -lt slow ${SLOW_FILE} |wc -l`
+        #根据LOG_LINES的值判断是否存在慢日志,并发送邮件
+        if [[ ${LOG_LINES} -le 5 ]];then
+         /usr/local/bin/mysqlsla -lt slow ${SLOW_FILE} |tee -a ${SLA_LOG} |mutt -F /root/.muttrc -s "正常_IT_报告_{{ slow_clusters_name }}DB慢日志报告" ${MAIL_LIST}
+        else
+         /usr/local/bin/mysqlsla -lt slow ${SLOW_FILE} |tee -a ${SLA_LOG} |mutt -F /root/.muttrc -s "异常_IT_报告_{{ slow_clusters_name }}DB慢日志报告" ${MAIL_LIST}
+        fi
+
+
+        #将日志导出到临时文件后, 清空慢日志文件
+        cat ${SLOW_FILE} >${BACK_DIR}/slowlog.bak && :> ${SLOW_FILE}
+
+#将备份日志打包并加密
+#        tar czf - slowlog.bak |openssl des3 -salt -k "${PASSWORD}" -out ${BACK_DIR}/slowlog_${BACK_DATE}.tar.gz
+
+            tar czf ${BACK_DIR}/slowlog_${BACK_DATE}.tar.gz -C ${BACK_DIR}  slowlog.bak
+                if ls ${BACK_DIR}/slowlog_${BACK_DATE}.tar.gz >&/dev/null;then
+                        echo "${BACK_DATE} 备份成功" >>${LOG_FILE}
+                        rm -rf ${BACK_DIR}/slowlog.bak
+                else
+                        echo "${BACK_DATE} 备份失败" >>${LOG_FILE}
+                fi
+
+#检查备份日志,只保留30天的备份
+        find ${BACK_DIR} -ctime +1 -exec rm -f {} \; && echo "${BACK_DATE} 删除1天以前的备份文件成功" >>${LOG_FILE}
+        echo "${BACK_DATE} 脚本成功完成" >>${LOG_FILE}
+
+done
+#END

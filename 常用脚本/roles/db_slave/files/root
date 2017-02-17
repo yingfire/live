@@ -1,0 +1,9 @@
+#每天8:00重启mysql
+0 8 * * * /bin/bash  /u1/scripts/restart_mysql.sh
+
+#MYSQL慢日志每日轮转
+0 8 * * * /bin/bash /u1/scripts/mysql_slowquery_log/mysql_slowquery_log.sh >&/dev/null
+
+#备份数据库目录数据
+0 4  * * * /bin/bash /u1/scripts/dbbak/mysql_filebak.sh
+

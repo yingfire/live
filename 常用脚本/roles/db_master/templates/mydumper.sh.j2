@@ -1,0 +1,121 @@
+#!/bin/bash
+#--------------------------------------------------------------------------------
+# Copyright (C)， 2016 PAIDUI.COM
+# 脚本名:      mydumper.sh
+# 脚本用途:   备份rom数据库.
+# 其它功能:    多线程工具mydumper数据备份
+# 脚本位置:    /u1/scripts/dbbak/
+# 脚本修改历史:
+#  <作者>      <日期>       <版本 >    <描述>
+#  黄起	        16/05/30      1.1 
+#  刘邦正	16/12/27      1.2      添加备份失败流程控制		
+# 版权: GPL
+#--------------------------------------------------------------------------------
+#导入ROOT环境变量
+. /root/.bash_profile
+TOUSER="bm.it.svr@paidui.com"
+CUR_DIR="/u1/scripts/dbbak"
+ROM_PATH="{{ rom_path }}"
+MYIP="{{ dest_ip }}"
+DBUSER="root"
+DBPASS="123456"
+DBSOCK="/data/mysql/mysql_3306/mysql_3306.sock"
+DB_COMMAND="mysql -u ${DBUSER} -p${DBPASS}  -S ${DBSOCK} -NBe "
+NOW=`date +%F`
+BAK_PATH="/data/mydumper_bak"
+LOG="/var/u1/scripts/dbbak/mydumper_${NOW}.log"
+SKIP_DB="${CUR_DIR}/db.txt"
+FILES="filebak_`date +%F`"
+BACKLOG="${BAK_PATH}/backup_log.txt"
+#--------------------------------------------------------------------------------
+Log_dir="/var/u1/scripts/dbbak/"
+Title_num2=0
+Index=0
+#---------------------------------数据库备份函数----------------------------------
+Backup_db () {
+while read db
+do
+	if ! grep -q  ${db} ${SKIP_DB};then	
+		Title_num2=$(($Title_num2+1))
+	#	/usr/local/bin/mydumper -u ${DBUSER}  -S  ${DBSOCK} -B ${db} -c -o ${BAK_PATH}/${NOW}/${db}
+		/usr/local/bin/mydumper -u ${DBUSER} -p ${DBPASS} -S  ${DBSOCK} -B ${db} -c -o ${BAK_PATH}/${NOW}/${db}
+		if [ $? -eq '0' ];then
+	        	echo "`date +'%F %T'` database ${db} dump ok<br>" >>${LOG}
+	        else
+	        	echo "`date +'%F %T'` database ${db} dump error......<br>" >>${LOG}
+	        fi
+	 fi
+done< <(${DB_COMMAND} "show databases") 
+echo "备份前的数据库总数是：$Title_num1" >> ${LOG}
+echo "已经备份数据库总数是：$Title_num2" >> ${LOG}
+echo "===================`date +'%F %T'` 备份结束===================<br>" >>${LOG}
+Error_count=`grep 'error' ${LOG}|wc -l`
+#附件完成时间
+echo `date +"%Y-%m-%d %H:%M:%S"` ${FILES}.tar.bz2 >>${BACKLOG}
+#转换日志
+unix2dos ${BACKLOG} &>/dev/null
+#压缩数据库
+cd ${BAK_PATH}
+nice -10 tar jcf ${NOW}.tar.bz2  ${NOW} >/dev/null 2>&1
+Backup_file_size=`du -s ${NOW}.tar.bz2|awk '{print $1}'`
+}
+
+#------------------------------------流程开始--------------------------------------
+#创建备份目录
+test -d ${BAK_PATH}/${NOW} || mkdir -p ${BAK_PATH}/${NOW}
+test -d ${Log_dir} || mkdir -p ${Log_dir}
+#统计备份以000开头的数据库总数
+Title_num1=`${DB_COMMAND} 'show databases' | grep ^000 |wc -l`
+
+#备份前重启一下mysql
+/bin/bash  /u1/scripts/restart_mysql.sh
+sleep 300
+#开始时间
+echo "=============================================" >${BACKLOG}
+echo `date +"%Y-%m-%d %H:%M:%S"` >>${BACKLOG}
+echo " " >>${BACKLOG}
+#备份数据库
+echo "===================`date +'%F %T'` 备份===================<br>" >${LOG}
+#-------------------------------------------备份流程判断--------------------------------------------------
+while true
+do
+	Backup_db
+	if [ ${Error_count} -ne 0 ];then 
+		if [ ${Index} -le 3 ];then
+			Index=$((Index+1))
+		#	echo "Index is ${Index}"
+			STATUS="失败${Index}次"
+		else 
+		#	echo "Index is too big!!!Backup failed!!!"
+			STATUS="失败${Index}次"
+			break
+		fi
+	else
+		if [ ${Backup_file_size:=0} -lt 10 ];then
+			if [ ${Index} -le 3 ];then
+				Index=$((Index+1))
+		#		echo "Index is ${Index}"
+				STATUS="失败${Index}次"
+			else
+                #       	echo "Index is too big!!!Backup failed!!!"
+				STATUS="失败${Index}次"
+				break
+			fi
+		else
+		#	echo "Backup successful!!!"
+			STATUS="成功"	
+			break
+		fi
+	fi
+sleep 300
+done
+#---------------------------------------------------------------------------------------------------------
+SIZE=`du -sh ${NOW}.tar.bz2|awk '{print $1}'`
+sed -i "1s#.*#备份文件大小${SIZE}.<br>存放路径:{{ dest_ip }}:${BAK_PATH}/${NOW}.tar.bz2<br>&#" ${LOG}
+mutt -F /root/.muttrc -s "IT_报告_{{ db_clusters_name }}数据库备份_{{ db_clusters_ip }}_${NOW}${STATUS}" ${TOUSER} <${LOG}
+#删除sql文件夹
+rm -fr ${BAK_PATH}/${NOW}
+#复制备份文件到ROM备份目录
+rsync -qulr --progress --partial ${BAK_PATH}/  ${ROM_PATH}/${MYIP}/
+find /data/mydumper_bak/ -ctime +14 -exec rm -f {} \;
+

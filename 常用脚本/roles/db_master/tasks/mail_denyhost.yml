@@ -1,0 +1,4 @@
+#- name: 安装邮件客户端
+#  script: /etc/ansible/roles/testsql/script/install_mail.sh
+- name: 安装denyhost
+  script: /etc/ansible/roles/testsql/script/install_denyhost.sh

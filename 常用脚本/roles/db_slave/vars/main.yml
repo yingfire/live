@@ -1,0 +1,30 @@
+#推送文件存放路径(file模块会自动寻找roles当中的file文件夹)
+filessrc: "/etc/ansible/roles/db_slave/files/"
+#推送安装文件目的地
+filesdest: "/usr/local/src/"
+#j2模板存放路径(template模块会自动寻找roles当中的templates文件夹)
+#j2file_dest: "/etc/ansible/roles/testsql/templates/"
+#-----------------------默认不用修改---------------------------
+#目标慢日志存放目录
+db_slowquery_dir: "/u1/scripts/mysql_slowquery_log/"
+#目标备份脚本存放目录
+db_backup_dir: "/u1/scripts/dbbak/"
+#目标DB重启脚本存放目录
+db_restart_dir: "/u1/scripts"
+#crontab存放路径
+db_crontab_dir: "/var/spool/cron/"
+#rc.local存放路径
+db_rclocal_dir: "/etc"
+
+#----------------------备份文件配置-----------------------------
+#备份地点
+rom_path: "10.172.247.133::rom"
+#数据库内网IP
+dest_ip: "10.10.10.1"
+#数据库集群名称
+db_clusters_name: "北京阿里云集群2(主)test"
+#数据库外网IP
+db_clusters_ip: "8.8.8.8"
+#---------------------慢日志配置-------------------------------
+#慢日志配置
+slow_clusters_name: "北京Hub1 DB集群2主test"

@@ -1,0 +1,51 @@
+---
+- hosts: SZ_Pre_Release01
+  vars:
+      cluster: h3
+      web_site: sz.rom.paidui.com
+  gather_facts: false
+  tasks:
+  - name: Add application_pool on IIS
+    win_iis_webapppool:
+      name: "{{ item.webapppool_name }}"
+      state: started
+      attributes: managedRuntimeVersion:v4.0
+    with_items:
+      - { webapppool_name: 'v5.7' }
+      - { webapppool_name: 'wx_v5.7' }
+      - { webapppool_name: 'bn_v5.7' }
+      - { webapppool_name: 'v5.8' }
+      - { webapppool_name: 'wx_v5.8' }
+      - { webapppool_name: 'bn_v5.8' }
+      - { webapppool_name: 'v5.9' }
+      - { webapppool_name: 'wx_v5.9' }
+      - { webapppool_name: 'bn_v5.9' }
+      - { webapppool_name: 'v6.0' }
+      - { webapppool_name: 'wx_v6.0' }
+      - { webapppool_name: 'bn_v6.0' }
+      - { webapppool_name: 'v6.1' }
+      - { webapppool_name: 'wx_v6.1' }
+      - { webapppool_name: 'bn_v6.1' }
+  - name: Add webapplication on IIS
+    win_iis_webapplication:
+      name: "{{ item.webapplication_name }}" 
+      application_pool: "{{ item.application_pool }}"
+      site: "{{ web_site }}"
+      state: present
+      physical_path: "{{ item.physical_path }}"
+    with_items:
+      - { webapplication_name: '/{{ cluster }}/v5.7', application_pool: 'v5.7', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.7' }
+      - { webapplication_name: '/{{ cluster }}/v5.7/wx', application_pool: 'wx_v5.7', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.7\wx' }
+      - { webapplication_name: '/{{ cluster }}/v5.7/bn', application_pool: 'bn_v5.7', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.7\bn' }
+      - { webapplication_name: '/{{ cluster }}/v5.8', application_pool: 'v5.8', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.8' }
+      - { webapplication_name: '/{{ cluster }}/v5.8/wx', application_pool: 'wx_v5.8', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.8\wx' }
+      - { webapplication_name: '/{{ cluster }}/v5.8/bn', application_pool: 'bn_v5.8', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.8\bn' }
+      - { webapplication_name: '/{{ cluster }}/v5.9', application_pool: 'v5.9', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.9' }
+      - { webapplication_name: '/{{ cluster }}/v5.9/wx', application_pool: 'wx_v5.9', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.9\wx' }
+      - { webapplication_name: '/{{ cluster }}/v5.9/bn', application_pool: 'bn_v5.9', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v5.9\bn' }
+      - { webapplication_name: '/{{ cluster }}/v6.0', application_pool: 'v6.0', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.0' }
+      - { webapplication_name: '/{{ cluster }}/v6.0/wx', application_pool: 'wx_v6.0', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.0\wx' }
+      - { webapplication_name: '/{{ cluster }}/v6.0/bn', application_pool: 'bn_v6.0', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.0\bn' }
+      - { webapplication_name: '/{{ cluster }}/v6.1', application_pool: 'v6.1', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.1' }
+      - { webapplication_name: '/{{ cluster }}/v6.1/wx', application_pool: 'wx_v6.1', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.1\wx' }
+      - { webapplication_name: '/{{ cluster }}/v6.1/bn', application_pool: 'bn_v6.1', physical_path: 'D:\websites\{{ web_site }}\{{ cluster }}\v6.1\bn' }

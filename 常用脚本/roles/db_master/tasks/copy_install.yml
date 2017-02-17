@@ -1,0 +1,31 @@
+- name: 查看文件夹是否存在，没有则创建({{ filesdest }})
+  file: dest={{ filesdest }} state=directory
+- name: 拷贝mydump和慢日志安装文件
+  copy: src={{ filessrc }}mydumper-0.9.1.tar.gz dest={{ filesdest }}
+- name: 拷贝慢日志安装文件
+  copy: src={{ filessrc }}mysqlsla-2.03.tar.gz dest={{ filesdest }}
+- name: 解压mydump安装文件
+  shell: tar zxf mydumper-0.9.1.tar.gz 
+  args:
+    chdir: "{{ filesdest }}"
+- name: 解压慢日志安装文件
+  shell: tar zxf mysqlsla-2.03.tar.gz 
+  args:
+    chdir: "{{ filesdest }}"
+- name: 安装依赖包
+  yum: name={{item}} 
+  with_items:
+    - glib2-devel
+    - mysql-devel
+    - zlib-devel
+    - pcre-devel
+    - openssl-devel
+    - cmake
+- name: 安装mydump
+  shell:  'cmake . && make && make install' 
+  args:
+    chdir: /usr/local/src/mydumper-0.9.1
+- name: 安装mysqlsla
+  shell:    'perl Makefile.PL &&  make && make install' 
+  args:
+    chdir: /usr/local/src/mysqlsla-2.03

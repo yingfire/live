@@ -1,0 +1,6 @@
+---
+- hosts: test1
+  user: root
+  gather_facts: false
+  roles:
+   - role: db_master

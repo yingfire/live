@@ -1,0 +1,8 @@
+- name: 查看文件夹是否存在，没有则创建({{ filesdest }})
+  file: dest={{ filesdest }} state=directory
+- name: 拷贝慢日志安装文件
+  copy: src={{ filessrc }}mysqlsla-2.03.tar.gz dest={{ filesdest }}
+- name: 解压慢日志安装文件
+  shell: tar zxf mysqlsla-2.03.tar.gz 
+  args:
+    chdir: "{{ filesdest }}"
