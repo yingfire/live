@@ -1,0 +1,1211 @@
+#!/bin/bash
+#------------------------------------
+
+#------------------------------------
+
+#导入root环境变量
+mail_user_group="bm.it.svr@paidui.com"
++ mail_user_group=bm.it.svr@paidui.com
+this_script_dir="/u1/scripts/dbbak"
++ this_script_dir=/u1/scripts/dbbak
+ignore_database_file="${this_script_dir}/db.txt"
++ ignore_database_file=/u1/scripts/dbbak/db.txt
+remote_rsync_ip_and_mode="10.20.1.2::rom"
++ remote_rsync_ip_and_mode=10.20.1.2::rom
+local_ip="10.20.10.3"
++ local_ip=10.20.10.3
+mysql_user="root"
++ mysql_user=root
+mysql_pass="123456"
++ mysql_pass=123456
+mysql_port="3306"
++ mysql_port=3306
+mysql_sock="/data/mysql/mysql_3306/mysql_3306.sock"
++ mysql_sock=/data/mysql/mysql_3306/mysql_3306.sock
+myslq_command="mysql -u ${mysql_user} -p${mysql_pass} -S ${mysql_sock} -NBe"
++ myslq_command='mysql -u root -p123456 -S /data/mysql/mysql_3306/mysql_3306.sock -NBe'
+date_today=`date -I`
+date -I
+++ date -I
++ date_today=2017-02-20
+hostname=`hostname`
+hostname
+++ hostname
++ hostname=ali_hd1_db_03
+db_backup_start_time=`date +'%F %T'`
+date +'%F %T'
+++ date '+%F %T'
++ db_backup_start_time='2017-02-20 17:37:31'
+db_backup_stop_time=`date +'%F %T'`
+date +'%F %T'
+++ date '+%F %T'
++ db_backup_stop_time='2017-02-20 17:37:31'
+mysql_backup_path="/data/mydumper_bak"
++ mysql_backup_path=/data/mydumper_bak
+mysql_backup_fie="${mysql_backup_path}/${date_today}"
++ mysql_backup_fie=/data/mydumper_bak/2017-02-20
+mysql_backup_log_path="/var/log/dbbak"
++ mysql_backup_log_path=/var/log/dbbak
+mysql_backup_log_name="${mysql_backup_log_path}/mydumper_${date_today}.log"
++ mysql_backup_log_name=/var/log/dbbak/mydumper_2017-02-20.log
+rsync_backup_log_name="${mysql_backup_log_path}/rsync_${date_today}.log"
++ rsync_backup_log_name=/var/log/dbbak/rsync_2017-02-20.log
+
+#检测服务器信息
+#check_mysql_backup_db_ip="*.*.*.*"
+check_mysql_backup_db_ip="182.92.221.191"
++ check_mysql_backup_db_ip=182.92.221.191
+check_mysql_backup_db_user="replication"
++ check_mysql_backup_db_user=replication
+check_mysql_backup_db_passwd="123456"
++ check_mysql_backup_db_passwd=123456
+check_mysql_backup_db_name="backup_vpc_hd"
++ check_mysql_backup_db_name=backup_vpc_hd
+check_mysql_backup_db_table=""
++ check_mysql_backup_db_table=
+check_mysql_backup_db_command="mysql -h ${check_mysql_backup_db_ip} -u ${check_mysql_backup_db_user} -p${check_mysql_backup_db_passwd} ${check_mysql_backup_db_name} -NBe"
++ check_mysql_backup_db_command='mysql -h 182.92.221.191 -u replication -p123456 backup_vpc_hd -NBe'
+
+check_mysql_backup_db_filed="server_name,server_ip,server_port,start_time,stop_time,total_of_businessmen,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
++ check_mysql_backup_db_filed=server_name,server_ip,server_port,start_time,stop_time,total_of_businessmen,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date
+
+
+#
+
+#检测备份目录和日志目录
+[ -d ${mysql_backup_fie} ] || mkdir -p ${mysql_backup_fie}
++ '[' -d /data/mydumper_bak/2017-02-20 ']'
+[ -d ${mysql_backup_log_path} ] || mkdir -p ${mysql_backup_log_path}
++ '[' -d /var/log/dbbak ']'
+
+#
+total_number_of_database=0
++ total_number_of_database=0
+
+#数据库备份函数
+database_backup () {
+while read db
+do
+	if ! grep ${db} ${ignore_database_file};then
+		total_number_of_database=$((total_number_of_database+1))
+		/usr/local/bin/mydumper -u ${mysql_user} -p ${mysql_pass} -S ${mysql_sock} -B ${db} -c -o ${mysql_backup_path}/${date_today}/${db}
+		if [ $? -eq 0 ];then
+			echo "`date +'%F %T'` database ${db} dump successful"  >> ${mysql_backup_log_name}
+		else
+			echo "`date +'%F %T'` database ${db} dump failed" >> ${mysql_backup_log_name}
+		fi
+	fi
+done< <(${myslq_command} "show databases")
+}
+#sql函数
+insert_check_mysql_backup_db () {
+${check_mysql_backup_db_command} "INSERT INTO ${mysql_backup_status}(${check_mysql_backup_db_filed}) values(${check_mysql_backup_db_value})"
+}
+restart_mysql () {
+/bin/bash  /u1/scripts/restart_mysql.sh
+#sleep 300
+sleep 3
+
+}
+remote_rsync_database_backup () {
+rsync -qulr --progress --partial ${mysql_backup_path}/ ${remote_rsync_ip_and_mode}/${local_ip}
+if [ $? -eq 0 ];then
+	echo "`date +'%F %T'` database  transport successful" >> ${rsync_backup_log_name}
+else
+	echo "`date +'%F %T'` database transport failed" >> ${rsync_backup_log_name}
+fi
+}
+judge_status () {
+mysql_backup_number=`grep failed ${mysql_backup_log_name}|wc -l`
+rsync_backup_number=`grep failed ${rsync_backup_log_name}|wc -l`
+mysql_backup_question=`grep 'No space' ${mysql_backup_log_name}|wc -l`
+if [ ${mysql_backup_number} -eq 0 ];then
+	mysql_backup_status="成功"
+	if [ ${rsync_backup_number} -eq 0 ];then
+		remote_rsync_status="成功"
+	else
+		remote_rsync_status="失败"
+	fi
+else
+	mysql_backup_status="失败"
+	if [ ${mysql_backup_question} -eq 0 ];then
+		mysql_backup_remarks="其他"
+	else
+		mysql_backup_remarks="磁盘空间不足"
+	fi
+	remote_rsync_status="失败"
+fi
+check_mysql_backup_db_value="'${hostname}','${local_ip}','${mysql_port}','${db_backup_start_time}','${db_backup_stop_time}','${total_number_of_database}','${mysql_backup_path}','${mysql_backup_size}','${mysql_backup_status}','${mysql_backup_remarks}','${remote_rsync_status}','${date_today}'"
+}
+
+
+#流程
+echo > ${mysql_backup_log_name}
++ echo
+#备份前重启数据库释放内存
+restart_mysql
++ restart_mysql
++ /bin/bash /u1/scripts/restart_mysql.sh
++ sleep 3
+#备份开始
+echo "===================`date +'%F %T'` 备份开始===================" >> ${mysql_backup_log_name}
+date +'%F %T'
+++ date '+%F %T'
++ echo '===================2017-02-20 17:37:36 备份开始==================='
+#备份数据库
+database_backup
++ database_backup
++ read db
+${myslq_command} "show databases"
+++ mysql -u root -p123456 -S /data/mysql/mysql_3306/mysql_3306.sock -NBe 'show databases'
++ grep information_schema /u1/scripts/dbbak/db.txt
+information_schema
++ read db
++ grep 0000115076_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=1
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000115076_baseinfo -c -o /data/mydumper_bak/2017-02-20/0000115076_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000115076_baseinfo dump successful'
++ read db
++ grep 0000115076_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=2
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000115076_ims -c -o /data/mydumper_bak/2017-02-20/0000115076_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000115076_ims dump successful'
++ read db
++ grep 0000115076_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=3
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000115076_member -c -o /data/mydumper_bak/2017-02-20/0000115076_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000115076_member dump successful'
++ read db
++ grep 0000115076_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=4
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000115076_pos -c -o /data/mydumper_bak/2017-02-20/0000115076_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000115076_pos dump successful'
++ read db
++ grep 0000345805_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=5
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000345805_baseinfo -c -o /data/mydumper_bak/2017-02-20/0000345805_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000345805_baseinfo dump successful'
++ read db
++ grep 0000345805_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=6
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000345805_ims -c -o /data/mydumper_bak/2017-02-20/0000345805_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:37 database 0000345805_ims dump successful'
++ read db
++ grep 0000345805_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=7
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000345805_member -c -o /data/mydumper_bak/2017-02-20/0000345805_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000345805_member dump successful'
++ read db
++ grep 0000345805_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=8
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000345805_pos -c -o /data/mydumper_bak/2017-02-20/0000345805_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000345805_pos dump successful'
++ read db
++ grep 0000445114_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=9
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445114_baseinfo -c -o /data/mydumper_bak/2017-02-20/0000445114_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000445114_baseinfo dump successful'
++ read db
++ grep 0000445114_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=10
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445114_ims -c -o /data/mydumper_bak/2017-02-20/0000445114_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000445114_ims dump successful'
++ read db
++ grep 0000445114_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=11
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445114_member -c -o /data/mydumper_bak/2017-02-20/0000445114_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000445114_member dump successful'
++ read db
++ grep 0000445114_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=12
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445114_pos -c -o /data/mydumper_bak/2017-02-20/0000445114_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:38 database 0000445114_pos dump successful'
++ read db
++ grep 0000445684_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=13
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445684_baseinfo -c -o /data/mydumper_bak/2017-02-20/0000445684_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:39 database 0000445684_baseinfo dump successful'
++ read db
++ grep 0000445684_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=14
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445684_ims -c -o /data/mydumper_bak/2017-02-20/0000445684_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:39 database 0000445684_ims dump successful'
++ read db
++ grep 0000445684_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=15
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445684_member -c -o /data/mydumper_bak/2017-02-20/0000445684_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:39 database 0000445684_member dump successful'
++ read db
++ grep 0000445684_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=16
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000445684_pos -c -o /data/mydumper_bak/2017-02-20/0000445684_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:39 database 0000445684_pos dump successful'
++ read db
++ grep 0000550662_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=17
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000550662_baseinfo -c -o /data/mydumper_bak/2017-02-20/0000550662_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:39 database 0000550662_baseinfo dump successful'
++ read db
++ grep 0000550662_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=18
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000550662_ims -c -o /data/mydumper_bak/2017-02-20/0000550662_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0000550662_ims dump successful'
++ read db
++ grep 0000550662_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=19
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000550662_member -c -o /data/mydumper_bak/2017-02-20/0000550662_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0000550662_member dump successful'
++ read db
++ grep 0000550662_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=20
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0000550662_pos -c -o /data/mydumper_bak/2017-02-20/0000550662_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0000550662_pos dump successful'
++ read db
++ grep 0001027284_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=21
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001027284_baseinfo -c -o /data/mydumper_bak/2017-02-20/0001027284_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0001027284_baseinfo dump successful'
++ read db
++ grep 0001027284_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=22
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001027284_ims -c -o /data/mydumper_bak/2017-02-20/0001027284_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0001027284_ims dump successful'
++ read db
++ grep 0001027284_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=23
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001027284_member -c -o /data/mydumper_bak/2017-02-20/0001027284_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:40 database 0001027284_member dump successful'
++ read db
++ grep 0001027284_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=24
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001027284_pos -c -o /data/mydumper_bak/2017-02-20/0001027284_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001027284_pos dump successful'
++ read db
++ grep 0001134184_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=25
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001134184_baseinfo -c -o /data/mydumper_bak/2017-02-20/0001134184_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001134184_baseinfo dump successful'
++ read db
++ grep 0001134184_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=26
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001134184_ims -c -o /data/mydumper_bak/2017-02-20/0001134184_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001134184_ims dump successful'
++ read db
++ grep 0001134184_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=27
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001134184_member -c -o /data/mydumper_bak/2017-02-20/0001134184_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001134184_member dump successful'
++ read db
++ grep 0001134184_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=28
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001134184_pos -c -o /data/mydumper_bak/2017-02-20/0001134184_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001134184_pos dump successful'
++ read db
++ grep 0001757017_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=29
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001757017_baseinfo -c -o /data/mydumper_bak/2017-02-20/0001757017_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:41 database 0001757017_baseinfo dump successful'
++ read db
++ grep 0001757017_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=30
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001757017_ims -c -o /data/mydumper_bak/2017-02-20/0001757017_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:42 database 0001757017_ims dump successful'
++ read db
++ grep 0001757017_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=31
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001757017_member -c -o /data/mydumper_bak/2017-02-20/0001757017_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:42 database 0001757017_member dump successful'
++ read db
++ grep 0001757017_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=32
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001757017_pos -c -o /data/mydumper_bak/2017-02-20/0001757017_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:42 database 0001757017_pos dump successful'
++ read db
++ grep 0001857767_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=33
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001857767_baseinfo -c -o /data/mydumper_bak/2017-02-20/0001857767_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:42 database 0001857767_baseinfo dump successful'
++ read db
++ grep 0001857767_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=34
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001857767_ims -c -o /data/mydumper_bak/2017-02-20/0001857767_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:42 database 0001857767_ims dump successful'
++ read db
++ grep 0001857767_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=35
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001857767_member -c -o /data/mydumper_bak/2017-02-20/0001857767_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0001857767_member dump successful'
++ read db
++ grep 0001857767_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=36
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0001857767_pos -c -o /data/mydumper_bak/2017-02-20/0001857767_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0001857767_pos dump successful'
++ read db
++ grep 0002040822_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=37
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002040822_baseinfo -c -o /data/mydumper_bak/2017-02-20/0002040822_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0002040822_baseinfo dump successful'
++ read db
++ grep 0002040822_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=38
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002040822_ims -c -o /data/mydumper_bak/2017-02-20/0002040822_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0002040822_ims dump successful'
++ read db
++ grep 0002040822_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=39
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002040822_member -c -o /data/mydumper_bak/2017-02-20/0002040822_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0002040822_member dump successful'
++ read db
++ grep 0002040822_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=40
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002040822_pos -c -o /data/mydumper_bak/2017-02-20/0002040822_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:43 database 0002040822_pos dump successful'
++ read db
++ grep 0002216744_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=41
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002216744_baseinfo -c -o /data/mydumper_bak/2017-02-20/0002216744_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002216744_baseinfo dump successful'
++ read db
++ grep 0002216744_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=42
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002216744_ims -c -o /data/mydumper_bak/2017-02-20/0002216744_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002216744_ims dump successful'
++ read db
++ grep 0002216744_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=43
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002216744_member -c -o /data/mydumper_bak/2017-02-20/0002216744_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002216744_member dump successful'
++ read db
++ grep 0002216744_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=44
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002216744_pos -c -o /data/mydumper_bak/2017-02-20/0002216744_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002216744_pos dump successful'
++ read db
++ grep 0002581024_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=45
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002581024_baseinfo -c -o /data/mydumper_bak/2017-02-20/0002581024_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002581024_baseinfo dump successful'
++ read db
++ grep 0002581024_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=46
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002581024_ims -c -o /data/mydumper_bak/2017-02-20/0002581024_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:44 database 0002581024_ims dump successful'
++ read db
++ grep 0002581024_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=47
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002581024_member -c -o /data/mydumper_bak/2017-02-20/0002581024_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002581024_member dump successful'
++ read db
++ grep 0002581024_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=48
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002581024_pos -c -o /data/mydumper_bak/2017-02-20/0002581024_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002581024_pos dump successful'
++ read db
++ grep 0002862545_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=49
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002862545_baseinfo -c -o /data/mydumper_bak/2017-02-20/0002862545_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002862545_baseinfo dump successful'
++ read db
++ grep 0002862545_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=50
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002862545_ims -c -o /data/mydumper_bak/2017-02-20/0002862545_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002862545_ims dump successful'
++ read db
++ grep 0002862545_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=51
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002862545_member -c -o /data/mydumper_bak/2017-02-20/0002862545_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002862545_member dump successful'
++ read db
++ grep 0002862545_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=52
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0002862545_pos -c -o /data/mydumper_bak/2017-02-20/0002862545_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:45 database 0002862545_pos dump successful'
++ read db
++ grep 0003053316_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=53
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003053316_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003053316_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003053316_baseinfo dump successful'
++ read db
++ grep 0003053316_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=54
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003053316_ims -c -o /data/mydumper_bak/2017-02-20/0003053316_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003053316_ims dump successful'
++ read db
++ grep 0003053316_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=55
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003053316_member -c -o /data/mydumper_bak/2017-02-20/0003053316_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003053316_member dump successful'
++ read db
++ grep 0003053316_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=56
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003053316_pos -c -o /data/mydumper_bak/2017-02-20/0003053316_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003053316_pos dump successful'
++ read db
++ grep 0003106024_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=57
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003106024_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003106024_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003106024_baseinfo dump successful'
++ read db
++ grep 0003106024_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=58
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003106024_ims -c -o /data/mydumper_bak/2017-02-20/0003106024_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:46 database 0003106024_ims dump successful'
++ read db
++ grep 0003106024_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=59
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003106024_member -c -o /data/mydumper_bak/2017-02-20/0003106024_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003106024_member dump successful'
++ read db
++ grep 0003106024_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=60
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003106024_pos -c -o /data/mydumper_bak/2017-02-20/0003106024_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003106024_pos dump successful'
++ read db
++ grep 0003132347_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=61
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003132347_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003132347_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003132347_baseinfo dump successful'
++ read db
++ grep 0003132347_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=62
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003132347_ims -c -o /data/mydumper_bak/2017-02-20/0003132347_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003132347_ims dump successful'
++ read db
++ grep 0003132347_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=63
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003132347_member -c -o /data/mydumper_bak/2017-02-20/0003132347_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003132347_member dump successful'
++ read db
++ grep 0003132347_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=64
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003132347_pos -c -o /data/mydumper_bak/2017-02-20/0003132347_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:47 database 0003132347_pos dump successful'
++ read db
++ grep 0003368173_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=65
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003368173_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003368173_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003368173_baseinfo dump successful'
++ read db
++ grep 0003368173_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=66
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003368173_ims -c -o /data/mydumper_bak/2017-02-20/0003368173_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003368173_ims dump successful'
++ read db
++ grep 0003368173_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=67
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003368173_member -c -o /data/mydumper_bak/2017-02-20/0003368173_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003368173_member dump successful'
++ read db
++ grep 0003368173_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=68
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003368173_pos -c -o /data/mydumper_bak/2017-02-20/0003368173_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003368173_pos dump successful'
++ read db
++ grep 0003607142_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=69
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003607142_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003607142_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003607142_baseinfo dump successful'
++ read db
++ grep 0003607142_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=70
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003607142_ims -c -o /data/mydumper_bak/2017-02-20/0003607142_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:48 database 0003607142_ims dump successful'
++ read db
++ grep 0003607142_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=71
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003607142_member -c -o /data/mydumper_bak/2017-02-20/0003607142_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003607142_member dump successful'
++ read db
++ grep 0003607142_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=72
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003607142_pos -c -o /data/mydumper_bak/2017-02-20/0003607142_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003607142_pos dump successful'
++ read db
++ grep 0003844565_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=73
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003844565_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003844565_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003844565_baseinfo dump successful'
++ read db
++ grep 0003844565_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=74
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003844565_ims -c -o /data/mydumper_bak/2017-02-20/0003844565_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003844565_ims dump successful'
++ read db
++ grep 0003844565_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=75
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003844565_member -c -o /data/mydumper_bak/2017-02-20/0003844565_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003844565_member dump successful'
++ read db
++ grep 0003844565_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=76
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003844565_pos -c -o /data/mydumper_bak/2017-02-20/0003844565_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:49 database 0003844565_pos dump successful'
++ read db
++ grep 0003881678_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=77
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003881678_baseinfo -c -o /data/mydumper_bak/2017-02-20/0003881678_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0003881678_baseinfo dump successful'
++ read db
++ grep 0003881678_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=78
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003881678_ims -c -o /data/mydumper_bak/2017-02-20/0003881678_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0003881678_ims dump successful'
++ read db
++ grep 0003881678_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=79
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003881678_member -c -o /data/mydumper_bak/2017-02-20/0003881678_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0003881678_member dump successful'
++ read db
++ grep 0003881678_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=80
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0003881678_pos -c -o /data/mydumper_bak/2017-02-20/0003881678_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0003881678_pos dump successful'
++ read db
++ grep 0004221514_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=81
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004221514_baseinfo -c -o /data/mydumper_bak/2017-02-20/0004221514_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0004221514_baseinfo dump successful'
++ read db
++ grep 0004221514_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=82
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004221514_ims -c -o /data/mydumper_bak/2017-02-20/0004221514_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:50 database 0004221514_ims dump successful'
++ read db
++ grep 0004221514_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=83
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004221514_member -c -o /data/mydumper_bak/2017-02-20/0004221514_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004221514_member dump successful'
++ read db
++ grep 0004221514_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=84
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004221514_pos -c -o /data/mydumper_bak/2017-02-20/0004221514_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004221514_pos dump successful'
++ read db
++ grep 0004310760_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=85
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004310760_baseinfo -c -o /data/mydumper_bak/2017-02-20/0004310760_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004310760_baseinfo dump successful'
++ read db
++ grep 0004310760_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=86
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004310760_ims -c -o /data/mydumper_bak/2017-02-20/0004310760_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004310760_ims dump successful'
++ read db
++ grep 0004310760_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=87
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004310760_member -c -o /data/mydumper_bak/2017-02-20/0004310760_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004310760_member dump successful'
++ read db
++ grep 0004310760_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=88
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004310760_pos -c -o /data/mydumper_bak/2017-02-20/0004310760_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:51 database 0004310760_pos dump successful'
++ read db
++ grep 0004640412_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=89
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004640412_baseinfo -c -o /data/mydumper_bak/2017-02-20/0004640412_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0004640412_baseinfo dump successful'
++ read db
++ grep 0004640412_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=90
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004640412_ims -c -o /data/mydumper_bak/2017-02-20/0004640412_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0004640412_ims dump successful'
++ read db
++ grep 0004640412_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=91
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004640412_member -c -o /data/mydumper_bak/2017-02-20/0004640412_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0004640412_member dump successful'
++ read db
++ grep 0004640412_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=92
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0004640412_pos -c -o /data/mydumper_bak/2017-02-20/0004640412_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0004640412_pos dump successful'
++ read db
++ grep 0005376645_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=93
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005376645_baseinfo -c -o /data/mydumper_bak/2017-02-20/0005376645_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0005376645_baseinfo dump successful'
++ read db
++ grep 0005376645_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=94
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005376645_ims -c -o /data/mydumper_bak/2017-02-20/0005376645_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:52 database 0005376645_ims dump successful'
++ read db
++ grep 0005376645_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=95
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005376645_member -c -o /data/mydumper_bak/2017-02-20/0005376645_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005376645_member dump successful'
++ read db
++ grep 0005376645_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=96
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005376645_pos -c -o /data/mydumper_bak/2017-02-20/0005376645_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005376645_pos dump successful'
++ read db
++ grep 0005766008_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=97
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005766008_baseinfo -c -o /data/mydumper_bak/2017-02-20/0005766008_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005766008_baseinfo dump successful'
++ read db
++ grep 0005766008_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=98
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005766008_ims -c -o /data/mydumper_bak/2017-02-20/0005766008_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005766008_ims dump successful'
++ read db
++ grep 0005766008_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=99
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005766008_member -c -o /data/mydumper_bak/2017-02-20/0005766008_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005766008_member dump successful'
++ read db
++ grep 0005766008_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=100
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005766008_pos -c -o /data/mydumper_bak/2017-02-20/0005766008_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:53 database 0005766008_pos dump successful'
++ read db
++ grep 0005806580_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=101
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005806580_baseinfo -c -o /data/mydumper_bak/2017-02-20/0005806580_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0005806580_baseinfo dump successful'
++ read db
++ grep 0005806580_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=102
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005806580_ims -c -o /data/mydumper_bak/2017-02-20/0005806580_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0005806580_ims dump successful'
++ read db
++ grep 0005806580_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=103
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005806580_member -c -o /data/mydumper_bak/2017-02-20/0005806580_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0005806580_member dump successful'
++ read db
++ grep 0005806580_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=104
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0005806580_pos -c -o /data/mydumper_bak/2017-02-20/0005806580_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0005806580_pos dump successful'
++ read db
++ grep 0006070711_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=105
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006070711_baseinfo -c -o /data/mydumper_bak/2017-02-20/0006070711_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0006070711_baseinfo dump successful'
++ read db
++ grep 0006070711_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=106
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006070711_ims -c -o /data/mydumper_bak/2017-02-20/0006070711_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:54 database 0006070711_ims dump successful'
++ read db
++ grep 0006070711_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=107
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006070711_member -c -o /data/mydumper_bak/2017-02-20/0006070711_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006070711_member dump successful'
++ read db
++ grep 0006070711_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=108
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006070711_pos -c -o /data/mydumper_bak/2017-02-20/0006070711_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006070711_pos dump successful'
++ read db
++ grep 0006206273_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=109
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006206273_baseinfo -c -o /data/mydumper_bak/2017-02-20/0006206273_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006206273_baseinfo dump successful'
++ read db
++ grep 0006206273_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=110
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006206273_ims -c -o /data/mydumper_bak/2017-02-20/0006206273_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006206273_ims dump successful'
++ read db
++ grep 0006206273_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=111
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006206273_member -c -o /data/mydumper_bak/2017-02-20/0006206273_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006206273_member dump successful'
++ read db
++ grep 0006206273_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=112
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0006206273_pos -c -o /data/mydumper_bak/2017-02-20/0006206273_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:55 database 0006206273_pos dump successful'
++ read db
++ grep 0007326056_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=113
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007326056_baseinfo -c -o /data/mydumper_bak/2017-02-20/0007326056_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007326056_baseinfo dump successful'
++ read db
++ grep 0007326056_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=114
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007326056_ims -c -o /data/mydumper_bak/2017-02-20/0007326056_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007326056_ims dump successful'
++ read db
++ grep 0007326056_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=115
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007326056_member -c -o /data/mydumper_bak/2017-02-20/0007326056_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007326056_member dump successful'
++ read db
++ grep 0007326056_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=116
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007326056_pos -c -o /data/mydumper_bak/2017-02-20/0007326056_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007326056_pos dump successful'
++ read db
++ grep 0007717231_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=117
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007717231_baseinfo -c -o /data/mydumper_bak/2017-02-20/0007717231_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007717231_baseinfo dump successful'
++ read db
++ grep 0007717231_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=118
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007717231_ims -c -o /data/mydumper_bak/2017-02-20/0007717231_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:56 database 0007717231_ims dump successful'
++ read db
++ grep 0007717231_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=119
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007717231_member -c -o /data/mydumper_bak/2017-02-20/0007717231_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:57 database 0007717231_member dump successful'
++ read db
++ grep 0007717231_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=120
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0007717231_pos -c -o /data/mydumper_bak/2017-02-20/0007717231_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:57 database 0007717231_pos dump successful'
++ read db
++ grep 0008051057_baseinfo /u1/scripts/dbbak/db.txt
++ total_number_of_database=121
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0008051057_baseinfo -c -o /data/mydumper_bak/2017-02-20/0008051057_baseinfo
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:57 database 0008051057_baseinfo dump successful'
++ read db
++ grep 0008051057_ims /u1/scripts/dbbak/db.txt
++ total_number_of_database=122
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0008051057_ims -c -o /data/mydumper_bak/2017-02-20/0008051057_ims
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:57 database 0008051057_ims dump successful'
++ read db
++ grep 0008051057_member /u1/scripts/dbbak/db.txt
++ total_number_of_database=123
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0008051057_member -c -o /data/mydumper_bak/2017-02-20/0008051057_member
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:57 database 0008051057_member dump successful'
++ read db
++ grep 0008051057_pos /u1/scripts/dbbak/db.txt
++ total_number_of_database=124
++ /usr/local/bin/mydumper -u root -p 123456 -S /data/mysql/mysql_3306/mysql_3306.sock -B 0008051057_pos -c -o /data/mydumper_bak/2017-02-20/0008051057_pos
++ '[' 0 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:58 database 0008051057_pos dump successful'
++ read db
++ grep mysql /u1/scripts/dbbak/db.txt
+mysql
++ read db
++ grep performance_schema /u1/scripts/dbbak/db.txt
+performance_schema
++ read db
++ grep test /u1/scripts/dbbak/db.txt
+test
++ read db
+echo "===================`date +'%F %T'` 备份结束===================" >> ${mysql_backup_log_name}
+date +'%F %T'
+++ date '+%F %T'
++ echo '===================2017-02-20 17:37:58 备份结束==================='
+#将本地备份上传到远程
+remote_rsync_database_backup
++ remote_rsync_database_backup
++ rsync -qulr --progress --partial /data/mydumper_bak/ 10.20.1.2::rom/10.20.10.3
+@ERROR: Unknown module 'rom'
+rsync error: error starting client-server protocol (code 5) at main.c(1503) [sender=3.0.6]
++ '[' 5 -eq 0 ']'
+date +'%F %T'
+++ date '+%F %T'
++ echo '2017-02-20 17:37:58 database transport failed'
+#判断备份和rsync的状态
+judge_status
++ judge_status
+grep failed ${mysql_backup_log_name}|wc -l
+++ grep failed /var/log/dbbak/mydumper_2017-02-20.log
+++ wc -l
++ mysql_backup_number=0
+grep failed ${rsync_backup_log_name}|wc -l
+++ grep failed /var/log/dbbak/rsync_2017-02-20.log
+++ wc -l
++ rsync_backup_number=11
+grep 'No space' ${mysql_backup_log_name}|wc -l
+++ grep 'No space' /var/log/dbbak/mydumper_2017-02-20.log
+++ wc -l
++ mysql_backup_question=0
++ '[' 0 -eq 0 ']'
++ mysql_backup_status=$'\346\210\220\345\212\237'
++ '[' 11 -eq 0 ']'
++ remote_rsync_status=$'\345\244\261\350\264\245'
++ check_mysql_backup_db_value=''\''ali_hd1_db_03'\'','\''10.20.10.3'\'','\''3306'\'','\''2017-02-20 17:37:31'\'','\''2017-02-20 17:37:31'\'','\''124'\'','\''/data/mydumper_bak'\'','\'''\'','\''成功'\'','\'''\'','\''失败'\'','\''2017-02-20'\'''
+#查看数据库备份的大小
+mysql_backup_size=`du -sh ${mysql_backup_path}/${date_today}.tar.bz2|awk '{print $1}'`
+du -sh ${mysql_backup_path}/${date_today}.tar.bz2|awk '{print $1}'
+++ du -sh /data/mydumper_bak/2017-02-20.tar.bz2
+++ awk '{print $1}'
+du: cannot access `/data/mydumper_bak/2017-02-20.tar.bz2': No such file or directory
++ mysql_backup_size=
+#插入数据库
+ insert_check_mysql_backup_db
++ insert_check_mysql_backup_db
++ mysql -h 182.92.221.191 -u replication -p123456 backup_vpc_hd -NBe 'INSERT INTO 成功(server_name,server_ip,server_port,start_time,stop_time,total_of_businessmen,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date) values('\''ali_hd1_db_03'\'','\''10.20.10.3'\'','\''3306'\'','\''2017-02-20 17:37:31'\'','\''2017-02-20 17:37:31'\'','\''124'\'','\''/data/mydumper_bak'\'','\'''\'','\''成功'\'','\'''\'','\''失败'\'','\''2017-02-20'\'')'
+ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '��功(server_name,server_ip,server_port,start_time,stop_time,total_of_businessme' at line 1
+
