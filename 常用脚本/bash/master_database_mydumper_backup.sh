@@ -30,7 +30,7 @@ check_mysql_backup_db_passwd="123456"
 check_mysql_backup_db_name="backup_vpc_hd"
 check_mysql_backup_db_table="mysql_backup_status"
 check_mysql_backup_db_command="mysql -h ${check_mysql_backup_db_ip} -u ${check_mysql_backup_db_user} -p${check_mysql_backup_db_passwd} ${check_mysql_backup_db_name} -NBe"
-check_mysql_backup_db_filed="server_name,server_ip,server_port,start_time,stop_time,total_of_businessmen,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
+check_mysql_backup_db_filed="server_name,server_ip,server_port,start_time,stop_time,total_number_of_database,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
 
 
 #检测备份目录和日志目录
