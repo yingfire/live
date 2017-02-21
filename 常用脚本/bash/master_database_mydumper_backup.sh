@@ -16,9 +16,8 @@ mysql_sock="/data/mysql/mysql_3306/mysql_3306.sock"
 myslq_command="mysql -u ${mysql_user} -p${mysql_pass} -S ${mysql_sock} -NBe"
 date_today=`date -I`
 hostname=`hostname`
-db_backup_start_time=`date +'%F %T'`
-db_backup_stop_time=`date +'%F %T'`
-mysql_backup_path="/data/mydumper_bak/"
+
+mysql_backup_path="/data/mydumper_bak"
 mysql_backup_fie="${mysql_backup_path}/${date_today}"
 mysql_backup_log_path="/var/log/dbbak"
 mysql_backup_log_name="${mysql_backup_log_path}/mydumper_${date_today}.log"
@@ -29,13 +28,10 @@ check_mysql_backup_db_ip="*.*.*.*"
 check_mysql_backup_db_user="replication"
 check_mysql_backup_db_passwd="123456"
 check_mysql_backup_db_name="backup_vpc_hd"
-check_mysql_backup_db_table=""
+check_mysql_backup_db_table="mysql_backup_status"
 check_mysql_backup_db_command="mysql -h ${check_mysql_backup_db_ip} -u ${check_mysql_backup_db_user} -p${check_mysql_backup_db_passwd} ${check_mysql_backup_db_name} -NBe"
-
 check_mysql_backup_db_filed="server_name,server_ip,server_port,start_time,stop_time,total_of_businessmen,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
 
-
-#
 
 #检测备份目录和日志目录
 [ -d ${mysql_backup_fie} ] || mkdir -p ${mysql_backup_fie}
@@ -61,7 +57,7 @@ done< <(${myslq_command} "show databases")
 }
 #sql函数
 insert_check_mysql_backup_db () {
-${check_mysql_backup_db_command} "INSERT INTO ${mysql_backup_status}(${check_mysql_backup_db_filed}) values(${check_mysql_backup_db_value})"
+${check_mysql_backup_db_command} "SET NAMES utf-8; INSERT INTO ${check_mysql_backup_db_table}(${check_mysql_backup_db_filed}) values(${check_mysql_backup_db_value})"
 }
 restart_mysql () {
 /bin/bash  /u1/scripts/restart_mysql.sh
@@ -97,27 +93,32 @@ else
 fi
 check_mysql_backup_db_value="'${hostname}','${local_ip}','${mysql_port}','${db_backup_start_time}','${db_backup_stop_time}','${total_number_of_database}','${mysql_backup_path}','${mysql_backup_size}','${mysql_backup_status}','${mysql_backup_remarks}','${remote_rsync_status}','${date_today}'"
 }
-
+#打包数据库并删除未打包文件,清除14天前的备份
+compress_delete_backup_file () {
+cd ${mysql_backup_path}
+nice -10 tar jcf ${date_today}.tar.bz2 ${date_today} > /dev/null 2>&1
+mysql_backup_size=`du -sh ${date_today}.tar.bz2|awk '{print $1}'`
+rm -rf ${mysql_backup_path:=UNSET}/${date_today}
+find ${mysql_backup_path:=UNSET}/ -ctime +14 -exec rm -f {} \;
+}
 
 #流程
 #备份前重启数据库释放内存
 restart_mysql
 #备份开始
+echo > ${mysql_backup_log_name}
+echo > ${rsync_backup_log_name}
 echo "===================`date +'%F %T'` 备份开始===================" >> ${mysql_backup_log_name}
+db_backup_start_time=`date +'%F %T'`
 #备份数据库
 database_backup
 echo "===================`date +'%F %T'` 备份结束===================" >> ${mysql_backup_log_name}
-#
-
-
-
-
-
+db_backup_stop_time=`date +'%F %T'`
+#打包数据库并删除未打包文件,清除14天前的备份
+compress_delete_backup_file
 #将本地备份上传到远程
 remote_rsync_database_backup
 #判断备份和rsync的状态
 judge_status
-#查看数据库备份的大小
-mysql_backup_size=`du -sh ${mysql_backup_path}/${date_today}.tar.bz2|awk '{print $1}'`
 #插入数据库
- insert_check_mysql_backup_db
+insert_check_mysql_backup_db
