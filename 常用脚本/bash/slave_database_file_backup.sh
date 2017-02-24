@@ -32,7 +32,7 @@ check_mysql_backup_db_passwd="123456"
 check_mysql_backup_db_name="backup_vpc_hd"
 check_mysql_backup_db_table="mysql_backup_status"
 check_mysql_backup_db_command="mysql -h ${check_mysql_backup_db_ip} -u ${check_mysql_backup_db_user} -p${check_mysql_backup_db_passwd} ${check_mysql_backup_db_name} -NBe"
-check_mysql_backup_db_filed="server_name,server_ip,server_port,start_time,stop_time,total_number_of_database,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
+check_mysql_backup_db_filed="server_ip,server_port,start_time,stop_time,total_number_of_database,backup_path,backup_size,backup_status,backup_remarks,remote_rsync_status,date"
 
 
 #检测备份目录和日志目录
@@ -101,7 +101,7 @@ else
 	fi
 	remote_rsync_status="失败"
 fi
-check_mysql_backup_db_value="'${hostname}','${local_ip}','${mysql_port}','${db_backup_start_time}','${db_backup_stop_time}','${total_number_of_database}','${mysql_backup_path}','${mysql_backup_size}','${mysql_backup_status}','${mysql_backup_remarks}','${remote_rsync_status}','${date_today}'"
+check_mysql_backup_db_value="''${local_ip}','${mysql_port}','${db_backup_start_time}','${db_backup_stop_time}','${total_number_of_database}','${mysql_backup_path}','${mysql_backup_size}','${mysql_backup_status}','${mysql_backup_remarks}','${remote_rsync_status}','${date_today}'"
 }
 #打包数据库并删除未打包文件,清除14天前的备份
 compress_delete_backup_file () {
