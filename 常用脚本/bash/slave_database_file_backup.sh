@@ -58,12 +58,12 @@ database_backup () {
 # done< <(${myslq_command} "show databases")
 mysqladmin shutdown -u${mysql_user} -p${mysql_pass} -S ${mysql_sock}
 count_of_mysql_process=`ps -ef | grep mysqld | grep -v grep |wc -l`
-[ ${count_of_mysql_process} -eq 0 ] && "mysql服务已经停止" >> ${mysql_backup_log_name}
+[ ${count_of_mysql_process} -eq 0 ] && echo "mysql服务已经停止" >> ${mysql_backup_log_name}
 cp -r ${mysql_database_dir} ${mysql_backup_fie} 2>> ${mysql_backup_log_name}
 /bin/start_mysql 1
 sleep 3
 count_of_mysql_process=`ps -ef | grep mysqld | grep -v grep |wc -l`
-[ ${count_of_mysql_process} -eq 0 ] || "mysql服务已启动" >> ${mysql_backup_log_name}
+[ ${count_of_mysql_process} -eq 0 ] || echo "mysql服务已启动" >> ${mysql_backup_log_name}
 }
 #sql函数
 insert_check_mysql_backup_db () {
