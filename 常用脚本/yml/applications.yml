@@ -1,5 +1,5 @@
 ---
-- hosts: SZ_Pre_Release01
+- hosts: test
   vars:
       cluster: h3
       web_site: aaaaaaaa
